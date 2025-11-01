@@ -13,7 +13,7 @@ app.config['JSON_SORT_KEYS'] = False
 CORS(app) # Habilitamos CORS para apps web/móviles
 
 # REEMPLAZA ESTO con la URL 'Raw' de tu historial_bcv.csv en GitHub
-CSV_URL = "URL_DEL_CSV_RAW_EN_GITHUB"
+CSV_URL = "https://raw.githubusercontent.com/ESuarezPeraza/API-BCV/refs/heads/main/historial_bcv.csv"
 
 # Lista de monedas válidas (claves de nuestro CSV)
 VALID_MONEDAS = ['eur', 'cny', 'try', 'rub', 'usd']
