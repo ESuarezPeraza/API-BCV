@@ -9,6 +9,9 @@ on:
     # 5:00 PM (17:00) VET = 21:00 UTC
     - cron: '0 21 * * *'
 
+permissions:
+  contents: write
+
 jobs:
   scrape_and_commit:
     runs-on: ubuntu-latest # Se ejecuta en un servidor Linux limpio
