@@ -1,97 +1,173 @@
 import requests
 from bs4 import BeautifulSoup
 import csv
-import datetime
-import re  # Para limpieza robusta de texto
-import os  # Para verificar la ruta del archivo
+import re
+import os
+import io # Necesario para leer la última línea eficientemente
 
 # --- Configuración Clave ---
 URL = "https://www.bcv.org.ve/"
-
-# Simulamos ser un navegador. Esencial para evitar bloqueos.
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
-
-# Esta es la parte FRÁGIL. Es el 'id' del <div> que contiene el precio.
-# Si la web del BCV cambia esto, el scraper fallará.
-TARGET_ID = 'dolar'
-
-# Nombre de nuestro archivo de base de datos
 CSV_FILE = 'historial_bcv.csv'
 
-# ----------------------------
+# Los IDs de los <div> que contienen cada tasa
+TARGET_IDS = {
+    'eur': 'euro',
+    'cny': 'yuan',
+    'try': 'lira',
+    'rub': 'rublo',
+    'usd': 'dolar'
+}
+
+# Las cabeceras que esperamos en el CSV
+FIELDNAMES = ['fecha_valor', 'eur', 'cny', 'try', 'rub', 'usd']
+
+# --- Funciones Auxiliares ---
+
+def _limpiar_tasa(div_tag):
+    """Extrae y limpia el texto de la tasa de un <div> dado."""
+    try:
+        tasa_strong = div_tag.find('strong')
+        tasa_cruda = tasa_strong.text.strip()
+        
+        match = re.search(r'(\d+,\d+)', tasa_cruda)
+        if not match:
+            print(f"Error: Formato no esperado en '{tasa_cruda}'")
+            return None
+            
+        tasa_limpia_str = match.group(1).replace(',', '.')
+        return float(tasa_limpia_str)
+    except Exception as e:
+        print(f"Error al limpiar tasa: {e}")
+        return None
+
+def _extraer_fecha_valor(soup):
+    """
+    Extrae la 'Fecha Valor' de la página, usando el selector de alta precisión.
+    """
+    try:
+        # MÉTODO 1 (El más fiable, gracias a tu hallazgo)
+        # Buscamos <span class="date-display-single" property="dc:date" ...>
+        fecha_tag = soup.find('span', class_='date-display-single', property='dc:date')
+        
+        if fecha_tag:
+            fecha_str = fecha_tag.text.strip()
+            if fecha_str:
+                print(f"Fecha Valor (Método 1: span.date-display-single): {fecha_str}")
+                return fecha_str
+        
+        # PLAN B (Si el BCV cambia el selector principal)
+        fecha_tag = soup.find('div', string=re.compile(r'Fecha Valor:'))
+        if fecha_tag:
+            texto_completo = fecha_tag.text.strip()
+            fecha_str = texto_completo.replace('Fecha Valor:', '').strip()
+            if fecha_str:
+                print(f"Fecha Valor (Método 2: Texto 'Fecha Valor:'): {fecha_str}")
+                return fecha_str
+
+        # PLAN C (Respaldo final)
+        fecha_tag = soup.find('span', class_='bcv-fecha-valor')
+        if fecha_tag:
+            fecha_str = fecha_tag.text.strip()
+            if fecha_str:
+                print(f"Fecha Valor (Método 3: span.bcv-fecha-valor): {fecha_str}")
+                return fecha_str
+        
+        # Si todos fallan
+        print("Error Crítico: No se pudo encontrar la 'Fecha Valor' con ninguno de los métodos.")
+        return None
+        
+    except Exception as e:
+        print(f"Error al extraer fecha: {e}")
+        return None
+
+def _leer_ultima_fila(filepath):
+    """Lee la última fila de un CSV para evitar duplicados."""
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        return None # Archivo no existe o está vacío
+        
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            # Leemos las últimas líneas (forma eficiente)
+            q = io.StringIO()
+            q.write(f.readline()) # Escribir cabecera
+            for line in f:
+                q.write(line)
+            q.seek(0)
+            
+            reader = csv.DictReader(q)
+            last_row = None
+            for row in reader:
+                last_row = row
+            return last_row
+            
+    except Exception as e:
+        print(f"Error leyendo última fila: {e}")
+        return None
+
+# --- Función Principal ---
 
 def run_scraper():
     """
-    Función principal que ejecuta el scraper.
-    Contacta al BCV, parsea el HTML y guarda el dato en el CSV.
+    Scraper multimoneda. Obtiene todas las tasas y la fecha valor.
     """
-    print("Iniciando scraper del BCV...")
-    
+    print("Iniciando scraper del BCV (Multimoneda v2.1)...")
     try:
-        # 1. Obtener el HTML
         response = requests.get(URL, headers=HEADERS, timeout=10)
-        # Lanza un error si la página no respondió bien (ej. 404, 500)
         response.raise_for_status()
         
-        # 2. Parsear el HTML con BeautifulSoup
         soup = BeautifulSoup(response.text, 'lxml')
         
-        # 3. Encontrar el dato
-        # Buscamos un <div> que tenga el id='dolar'
-        tasa_div = soup.find('div', id=TARGET_ID)
-        
-        if not tasa_div:
-            print(f"Error Crítico: No se encontró ningún <div> con id='{TARGET_ID}'.")
-            print("Posible cambio en la estructura de la página del BCV.")
-            return
-
-        tasa_strong = tasa_div.find('strong')
-        
-        if not tasa_strong:
-            print(f"Error Crítico: Se encontró el <div>, pero no la etiqueta <strong> dentro.")
-            return
-
-        # 4. Limpiar el texto
-        tasa_cruda = tasa_strong.text.strip()  # Ej: "   35,9012    "
-        
-        # Usamos expresión regular para extraer solo el número (formato XX,XXXX)
-        match = re.search(r'(\d+,\d+)', tasa_cruda)
-        
-        if not match:
-            print(f"Error: El texto '{tasa_cruda}' no tiene el formato esperado (ej. 35,90).")
-            return
+        # 1. Extraer todas las tasas
+        tasas = {}
+        for key, target_id in TARGET_IDS.items():
+            tasa_div = soup.find('div', id=target_id)
+            if not tasa_div:
+                print(f"Error Crítico: No se encontró <div> con id='{target_id}'")
+                return
             
-        # Reemplazamos la coma por un punto para el formato decimal estándar
-        tasa_limpia_str = match.group(1).replace(',', '.')
-        tasa_final = float(tasa_limpia_str)
-        fecha_hoy = datetime.date.today().isoformat()  # Formato AAAA-MM-DD
-        
-        print(f"Tasa encontrada: {tasa_final} | Fecha: {fecha_hoy}")
-
-        # 5. Guardar en CSV
-        # Usamos 'os.path.abspath' para asegurar que escribimos en el archivo correcto
-        file_path = os.path.abspath(CSV_FILE)
-        
-        # 'a' significa 'append' (añadir al final)
-        # 'newline=""' es vital para que 'csv.writer' no cree líneas extra
-        with open(file_path, mode='a', newline='', encoding='utf-8') as f:
-            escritor_csv = csv.writer(f)
-            escritor_csv.writerow([fecha_hoy, tasa_final])
+            tasa_valor = _limpiar_tasa(tasa_div)
+            if tasa_valor is None:
+                print(f"Error Crítico: No se pudo limpiar la tasa para '{key}'")
+                return
             
-        print(f"Tasa guardada exitosamente en {file_path}")
+            tasas[key] = tasa_valor
+            print(f"Tasa encontrada: {key.upper()} = {tasa_valor}")
 
-    except requests.exceptions.Timeout:
-        print(f"Error: La solicitud a {URL} tardó demasiado (Timeout).")
+        # 2. Extraer la Fecha Valor
+        fecha_valor = _extraer_fecha_valor(soup)
+        if fecha_valor is None:
+            return # El error ya se imprimió en la función auxiliar
+            
+        print(f"Fecha Valor encontrada: {fecha_valor}")
+
+        # 3. Comprobar duplicados
+        ultima_fila = _leer_ultima_fila(CSV_FILE)
+        if ultima_fila and ultima_fila.get('fecha_valor') == fecha_valor:
+            print("Datos ya están actualizados. No se requiere escritura.")
+            return
+
+        # 4. Guardar los nuevos datos
+        nueva_fila = {'fecha_valor': fecha_valor, **tasas}
+        
+        file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
+        
+        with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+            
+            if not file_exists:
+                writer.writeheader()
+                
+            writer.writerow(nueva_fila)
+            
+        print(f"Datos guardados exitosamente en {CSV_FILE}")
+
     except requests.exceptions.RequestException as e:
         print(f"Error de conexión al intentar acceder a {URL}: {e}")
-    except AttributeError as e:
-        # Este error ocurre si 'tasa_div' es 'None' y tratamos de usar .find()
-        print(f"Error de 'AttributeError': {e}. (Revisar TARGET_ID)")
     except Exception as e:
         print(f"Ocurrió un error inesperado: {e}")
 
-# --- Este bloque permite ejecutar el script directamente ---
 if __name__ == '__main__':
     run_scraper()
