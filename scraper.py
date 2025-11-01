@@ -128,7 +128,7 @@ def run_scraper():
         tasas = {}
         for key, target_id in TARGET_IDS.items():
             tasa_div = soup.find('div', id=target_id)
-            tasa_valor = _limpiar_tasa(tasa_div) if tasa_div else None
+            tasa_valor = _limpiar_tasa(div_tag) if tasa_div else None
             if tasa_valor is None:
                 print(f"Error Crítico: No se pudo limpiar la tasa para '{key}'")
                 return
