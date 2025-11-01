@@ -5,6 +5,11 @@ import re
 import os
 import io
 import datetime
+import urllib3  # <--- NUEVO: Para silenciar advertencias de SSL
+
+# --- ¡NUEVO! Desactivar las advertencias de SSL ---
+# Ya que vamos a usar verify=False, esto evita que el log se llene de spam
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- Configuración Clave ---
 URL = "https://www.bcv.org.ve/"
@@ -23,14 +28,13 @@ TARGET_IDS = {
 
 FIELDNAMES = ['fecha_iso', 'fecha_valor', 'eur', 'cny', 'try', 'rub', 'usd']
 
-# Diccionario de meses para parseo manual (sin locale)
 MESES_ES = {
     'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
     'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
     'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
 }
 
-# --- Funciones Auxiliares ---
+# --- Funciones Auxiliares (Sin cambios) ---
 
 def _limpiar_tasa(div_tag):
     try:
@@ -110,18 +114,18 @@ def _leer_ultima_fila(filepath):
 # --- Función Principal ---
 
 def run_scraper():
-    print("Iniciando scraper del BCV (Multimoneda v2.5 - Producción)...")
+    print("Iniciando scraper del BCV (Multimoneda v2.6 - SSL Inseguro)...")
     try:
-        # Esta es la versión de producción, NO usa verify=False
-        response = requests.get(URL, headers=HEADERS, timeout=10)
+        # --- ¡CAMBIO CRÍTICO! ---
+        # Añadimos verify=False para ignorar el certificado roto del BCV
+        response = requests.get(URL, headers=HEADERS, timeout=10, verify=False)
+        
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'lxml')
         
         tasas = {}
         for key, target_id in TARGET_IDS.items():
             tasa_div = soup.find('div', id=target_id)
-            
-            # --- CORRECCIÓN ---
             tasa_valor = _limpiar_tasa(tasa_div) if tasa_div else None
             
             if tasa_valor is None:
