@@ -3,20 +3,18 @@ import csv
 import io
 import datetime
 from flask import Flask, jsonify
-from flask_cors import CORS  # Importamos la librería de permisos
+from flask_cors import CORS
 
 # --- Configuración ---
 app = Flask(__name__)
-# Habilitamos CORS para todos los dominios.
-# Esto permite que tu app web (JS) llame a esta API.
-CORS(app)
+# No ordenamos las claves JSON para mantener el orden del CSV
+app.config['JSON_SORT_KEYS'] = False
+CORS(app) # Habilitamos CORS para apps web/móviles
 
 # REEMPLAZA ESTO con la URL 'Raw' de tu historial_bcv.csv en GitHub
-CSV_URL = "https://raw.githubusercontent.com/ESuarezPeraza/API-BCV/refs/heads/main/historial_bcv.csv"
+CSV_URL = "URL_DEL_CSV_RAW_EN_GITHUB"
 
 # --- Lógica de Caching (Esencial) ---
-# No queremos descargar el CSV de GitHub en CADA llamada a la API.
-# GitHub nos bloquearía. Guardamos los datos en memoria por un tiempo.
 cache = {
     'datos': None,
     'timestamp': None
@@ -24,36 +22,28 @@ cache = {
 CACHE_DURATION = datetime.timedelta(minutes=15)
 
 # --- Funciones Auxiliares ---
-
 def _convertir_fila_a_float(fila):
-    """Toma una fila del CSV y convierte las tasas a números (float)."""
     tasas_keys = ['eur', 'cny', 'try', 'rub', 'usd']
     for key in tasas_keys:
         if key in fila:
             try:
                 fila[key] = float(fila[key])
             except (ValueError, TypeError):
-                # Si un dato está malformado, lo dejamos como None
                 fila[key] = None
     return fila
 
 def get_data_from_github():
-    """
-    Obtiene los datos del CSV desde GitHub, usando el caché.
-    """
     ahora = datetime.datetime.now()
     
-    # 1. Revisar si el caché es válido
     if (cache['datos'] and cache['timestamp'] and
         (ahora - cache['timestamp'] < CACHE_DURATION)):
         print("Sirviendo desde el caché...")
-        return cache['datos'], None  # Devuelve (datos, error)
+        return cache['datos'], None
 
     print("Caché expirado. Descargando desde GitHub...")
-    # 2. Si el caché no es válido, descargar
     try:
         response = requests.get(CSV_URL)
-        response.raise_for_status()  # Lanza error si no lo puede descargar
+        response.raise_for_status()
         
         csv_text = response.content.decode('utf-8')
         csv_file = io.StringIO(csv_text)
@@ -64,61 +54,66 @@ def get_data_from_github():
         for fila in reader:
             historial.append(_convertir_fila_a_float(fila))
             
-        # 3. Actualizar el caché
         cache['datos'] = historial
         cache['timestamp'] = ahora
         
-        return historial, None  # Devuelve (datos, error)
+        return historial, None
         
-    except requests.exceptions.RequestException as e:
-        print(f"Error descargando CSV desde GitHub: {e}")
-        return None, "Error al contactar la base de datos en GitHub."
     except Exception as e:
-        print(f"Error procesando el CSV: {e}")
-        return None, "Error interno al procesar los datos."
+        print(f"Error al descargar o procesar CSV: {e}")
+        return None, "Error al contactar la base de datos."
 
 # --- Endpoints de la API ---
 
 @app.route('/')
 def index():
-    """Endpoint raíz de bienvenida."""
     return jsonify({
         "mensaje": "Bienvenido a la API de Tasas del BCV (Multimoneda)",
-        "desarrollador": "Tu Nombre Aquí",
-        "fuente": "Datos scrapeados de bcv.org.ve",
         "endpoints": {
             "actual": "/api/tasa/actual",
-            "historial": "/api/tasa/historial"
+            "historial": "/api/tasa/historial",
+            "por_fecha": "/api/tasa/YYYY-MM-DD"
         }
     })
 
 @app.route('/api/tasa/actual')
 def get_tasa_actual():
-    """Devuelve solo el último registro (el más reciente)."""
     historial, error = get_data_from_github()
+    if error: return jsonify({"error": error}), 500
+    if not historial: return jsonify({"error": "No se encontraron datos"}), 404
     
-    if error:
-        return jsonify({"error": error}), 500
-        
-    if not historial:
-        return jsonify({"error": "No se encontraron datos"}), 404
-    
-    # La tasa actual es el ÚLTIMO elemento en la lista
-    tasa_actual = historial[-1]
-    
-    return jsonify(tasa_actual)
+    return jsonify(historial[-1]) # El último registro
 
 @app.route('/api/tasa/historial')
 def get_tasa_historial():
-    """Devuelve todo el historial de tasas."""
     historial, error = get_data_from_github()
-    
-    if error:
-        return jsonify({"error": error}), 500
-
+    if error: return jsonify({"error": error}), 500
     return jsonify(historial)
+
+# --- ¡NUEVO ENDPOINT! ---
+@app.route('/api/tasa/<string:fecha_iso>')
+def get_tasa_por_fecha(fecha_iso):
+    """
+    Devuelve las tasas para una fecha específica en formato YYYY-MM-DD.
+    """
+    # Validar formato básico
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', fecha_iso):
+        return jsonify({
+            "error": "Formato de fecha inválido.",
+            "formato_esperado": "YYYY-MM-DD"
+        }), 400
+
+    historial, error = get_data_from_github()
+    if error: return jsonify({"error": error}), 500
+    if not historial: return jsonify({"error": "No se encontraron datos"}), 404
+
+    # Buscar en el historial la fecha_iso
+    for fila in historial:
+        if fila.get('fecha_iso') == fecha_iso:
+            return jsonify(fila)
+    
+    return jsonify({"error": "Fecha no encontrada."}), 404
 
 # --- Corre la aplicación ---
 if __name__ == '__main__':
-    # 'host="0.0.0.0"' es importante para despliegue
     app.run(host='0.0.0.0', port=5000, debug=True)
