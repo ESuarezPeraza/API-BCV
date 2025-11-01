@@ -1,11 +1,5 @@
-# Para crear el servidor web de la API
 flask
-
-# Para descargar el HTML de la web del BCV
+flask-cors
 requests
-
-# Para analizar el HTML y encontrar los datos
 beautifulsoup4
-
-# Un analizador de HTML rápido que usa BeautifulSoup
 lxml

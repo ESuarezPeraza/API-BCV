@@ -48,14 +48,18 @@ def _extraer_fecha_valor(soup):
     Extrae la 'Fecha Valor' de la página, usando el selector de alta precisión.
     """
     try:
-        # MÉTODO 1 (El más fiable, gracias a tu hallazgo)
+        # MÉTODO 1 (v2.2 - El más robusto)
         # Buscamos <span class="date-display-single" property="dc:date" ...>
-        fecha_tag = soup.find('span', class_='date-display-single', property='dc:date')
+        # Usamos attrs={} para la búsqueda más precisa y fiable
+        fecha_tag = soup.find('span', attrs={
+            'class': 'date-display-single',
+            'property': 'dc:date'
+        })
         
         if fecha_tag:
             fecha_str = fecha_tag.text.strip()
             if fecha_str:
-                print(f"Fecha Valor (Método 1: span.date-display-single): {fecha_str}")
+                print(f"Fecha Valor (Método 1: attrs{{...}}): {fecha_str}")
                 return fecha_str
         
         # PLAN B (Si el BCV cambia el selector principal)
@@ -113,7 +117,7 @@ def run_scraper():
     """
     Scraper multimoneda. Obtiene todas las tasas y la fecha valor.
     """
-    print("Iniciando scraper del BCV (Multimoneda v2.1)...")
+    print("Iniciando scraper del BCV (Multimoneda v2.2)...")
     try:
         response = requests.get(URL, headers=HEADERS, timeout=10)
         response.raise_for_status()
