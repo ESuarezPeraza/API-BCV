@@ -4,7 +4,7 @@ import csv
 import re
 import os
 import io
-import datetime # Aún lo usamos para formatear, pero no para parsear texto
+import datetime
 
 # --- Configuración Clave ---
 URL = "https://www.bcv.org.ve/"
@@ -23,8 +23,7 @@ TARGET_IDS = {
 
 FIELDNAMES = ['fecha_iso', 'fecha_valor', 'eur', 'cny', 'try', 'rub', 'usd']
 
-# --- NUEVO: Diccionario de meses para parseo manual ---
-# Esto elimina la dependencia de 'locale'
+# Diccionario de meses para parseo manual (sin locale)
 MESES_ES = {
     'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
     'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
@@ -64,36 +63,28 @@ def _extraer_fecha_valor(soup):
         return None
 
 def _parsear_fecha_iso(fecha_valor_str):
-    """
-    NUEVA FUNCIÓN v2.4: Parseo manual de fecha sin 'locale'.
-    """
     try:
-        # Limpiar: "Lunes, 03 Noviembre  2025" -> "lunes, 03 noviembre  2025"
         texto_limpio = fecha_valor_str.lower().strip()
         
-        # Extraer las partes con regex
-        # Ignora el día de la semana, busca "dd mes yyyy"
-        match = re.search(r'(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})', texto_limpio) # Formato "03 de Noviembre de 2025"
+        match = re.search(r'(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})', texto_limpio)
         if not match:
-            # Plan B: "Lunes, 03 Noviembre 2025"
             match = re.search(r'(\d{1,2})\s+(\w+)\s+(\d{4})', texto_limpio)
         
         if not match:
             print(f"Error parseando fecha: Regex no encontró patrón en '{texto_limpio}'")
             return None
 
-        dia_str = match.group(1).zfill(2) # "03"
-        mes_str = match.group(2)          # "noviembre"
-        ano_str = match.group(3)          # "2025"
+        dia_str = match.group(1).zfill(2)
+        mes_str = match.group(2)
+        ano_str = match.group(3)
         
-        # Traducir el mes
         if mes_str not in MESES_ES:
             print(f"Error parseando fecha: Mes desconocido '{mes_str}'")
             return None
             
-        mes_num = MESES_ES[mes_str] # "11"
+        mes_num = MESES_ES[mes_str]
         
-        fecha_iso = f"{ano_str}-{mes_num}-{dia_str}" # "2025-11-03"
+        fecha_iso = f"{ano_str}-{mes_num}-{dia_str}"
         return fecha_iso
         
     except Exception as e:
@@ -116,11 +107,12 @@ def _leer_ultima_fila(filepath):
     except Exception:
         return None
 
-# --- Función Principal (sin cambios desde 2.3) ---
+# --- Función Principal ---
 
 def run_scraper():
-    print("Iniciando scraper del BCV (Multimoneda v2.4 - Sin Locale)...")
+    print("Iniciando scraper del BCV (Multimoneda v2.5 - Producción)...")
     try:
+        # Esta es la versión de producción, NO usa verify=False
         response = requests.get(URL, headers=HEADERS, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'lxml')
@@ -128,9 +120,12 @@ def run_scraper():
         tasas = {}
         for key, target_id in TARGET_IDS.items():
             tasa_div = soup.find('div', id=target_id)
-            tasa_valor = _limpiar_tasa(div_tag) if tasa_div else None
+            
+            # --- CORRECCIÓN ---
+            tasa_valor = _limpiar_tasa(tasa_div) if tasa_div else None
+            
             if tasa_valor is None:
-                print(f"Error Crítico: No se pudo limpiar la tasa para '{key}'")
+                print(f"Error Crítico: No se pudo limpiar la tasa para '{key}' (ID: {target_id})")
                 return
             tasas[key] = tasa_valor
             print(f"Tasa encontrada: {key.upper()} = {tasa_valor}")
@@ -138,7 +133,7 @@ def run_scraper():
         fecha_valor = _extraer_fecha_valor(soup)
         if fecha_valor is None: return
 
-        fecha_iso = _parsear_fecha_iso(fecha_valor) # <--- USA LA NUEVA FUNCIÓN
+        fecha_iso = _parsear_fecha_iso(fecha_valor)
         if fecha_iso is None:
             print("Error Crítico: No se pudo parsear la fecha ISO. Abortando.")
             return
