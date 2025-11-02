@@ -26,7 +26,7 @@ TARGET_IDS = {
     'usd': 'dolar'
 }
 
-FIELDNAMES = ['fecha_iso', 'fecha_valor', 'eur', 'cny', 'try', 'rub', 'usd']
+FIELDNAMES = ['fecha_iso', 'fecha_valor', 'eur', 'cny', 'try', 'rub', 'usd', 'eur_diff', 'cny_diff', 'try_diff', 'rub_diff', 'usd_diff']
 
 MESES_ES = {
     'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
@@ -149,7 +149,19 @@ def run_scraper():
             print("Datos ya están actualizados (por fecha_iso). No se requiere escritura.")
             return
 
-        nueva_fila = {'fecha_iso': fecha_iso, 'fecha_valor': fecha_valor, **tasas}
+        # Calcular diferencias porcentuales
+        diferencias = {}
+        for key in TARGET_IDS.keys():
+            tasa_actual = tasas[key]
+            tasa_anterior = ultima_fila.get(key) if ultima_fila else None
+
+            if tasa_anterior and tasa_anterior != 0:
+                diff_porcentual = ((tasa_actual - float(tasa_anterior)) / float(tasa_anterior)) * 100
+                diferencias[f'{key}_diff'] = round(diff_porcentual, 4)
+            else:
+                diferencias[f'{key}_diff'] = None  # Primera entrada o tasa anterior es cero
+
+        nueva_fila = {'fecha_iso': fecha_iso, 'fecha_valor': fecha_valor, **tasas, **diferencias}
         
         file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
         
