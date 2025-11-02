@@ -144,7 +144,23 @@ def run_scraper():
             
         print(f"Fecha Valor: {fecha_valor} | Fecha ISO: {fecha_iso}")
 
-        ultima_fila = _leer_ultima_fila(CSV_FILE)
+        # Leer datos existentes si el archivo existe
+        datos_existentes = []
+        if os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0:
+            try:
+                with open(CSV_FILE, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        # Agregar columnas de diferencias si no existen
+                        for key in TARGET_IDS.keys():
+                            if f'{key}_diff' not in row:
+                                row[f'{key}_diff'] = None
+                        datos_existentes.append(row)
+            except Exception as e:
+                print(f"Error al leer CSV existente: {e}")
+                return
+
+        ultima_fila = datos_existentes[-1] if datos_existentes else None
         if ultima_fila and ultima_fila.get('fecha_iso') == fecha_iso:
             print("Datos ya están actualizados (por fecha_iso). No se requiere escritura.")
             return
@@ -155,23 +171,27 @@ def run_scraper():
             tasa_actual = tasas[key]
             tasa_anterior = ultima_fila.get(key) if ultima_fila else None
 
-            if tasa_anterior and tasa_anterior != 0:
-                diff_porcentual = ((tasa_actual - float(tasa_anterior)) / float(tasa_anterior)) * 100
-                diferencias[f'{key}_diff'] = round(diff_porcentual, 4)
+            if tasa_anterior and tasa_anterior != '0' and tasa_anterior is not None:
+                try:
+                    diff_porcentual = ((tasa_actual - float(tasa_anterior)) / float(tasa_anterior)) * 100
+                    diferencias[f'{key}_diff'] = round(diff_porcentual, 4)
+                except (ValueError, ZeroDivisionError):
+                    diferencias[f'{key}_diff'] = None
             else:
                 diferencias[f'{key}_diff'] = None  # Primera entrada o tasa anterior es cero
 
         nueva_fila = {'fecha_iso': fecha_iso, 'fecha_valor': fecha_valor, **tasas, **diferencias}
-        
-        file_exists = os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 0
-        
-        with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
+
+        # Agregar nueva fila a los datos existentes
+        datos_existentes.append(nueva_fila)
+
+        # Reescribir el archivo completo con los nuevos encabezados
+        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(nueva_fila)
-            
-        print(f"Datos guardados exitosamente en {CSV_FILE}")
+            writer.writeheader()
+            writer.writerows(datos_existentes)
+
+        print(f"Datos guardados exitosamente en {CSV_FILE} con diferencias porcentuales")
 
     except Exception as e:
         print(f"Ocurrió un error inesperado: {e}")
