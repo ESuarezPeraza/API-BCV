@@ -50,16 +50,30 @@ def _extraer_fecha_valor(soup):
     try:
         fecha_tag = soup.find('span', attrs={'class': 'date-display-single', 'property': 'dc:date'})
         if fecha_tag and fecha_tag.text.strip():
-            print(f"Fecha Valor (Método 1: attrs{{...}}): {fecha_tag.text.strip()}")
-            return fecha_tag.text.strip()
-        
+            texto = fecha_tag.text.strip()
+            # Agregar "de" si no está presente
+            if " de " not in texto:
+                # Buscar patrón como "Lunes, 03 Noviembre 2025" y convertirlo a "Lunes, 03 de Noviembre de 2025"
+                match = re.search(r'(\w+),\s*(\d+)\s+(\w+)\s+(\d{4})', texto)
+                if match:
+                    dia_semana, dia, mes, ano = match.groups()
+                    texto = f"{dia_semana}, {dia.zfill(2)} de {mes} de {ano}"
+            print(f"Fecha Valor (Método 1: attrs{{...}}): {texto}")
+            return texto
+
         fecha_tag = soup.find('div', string=re.compile(r'Fecha Valor:'))
         if fecha_tag:
             texto = fecha_tag.text.strip().replace('Fecha Valor:', '').strip()
             if texto:
+                # Agregar "de" si no está presente
+                if " de " not in texto:
+                    match = re.search(r'(\w+),\s*(\d+)\s+(\w+)\s+(\d{4})', texto)
+                    if match:
+                        dia_semana, dia, mes, ano = match.groups()
+                        texto = f"{dia_semana}, {dia.zfill(2)} de {mes} de {ano}"
                 print(f"Fecha Valor (Método 2: Texto 'Fecha Valor:'): {texto}")
                 return texto
-        
+
         print("Error Crítico: No se pudo encontrar la 'Fecha Valor'.")
         return None
     except Exception as e:
