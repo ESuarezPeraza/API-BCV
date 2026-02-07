@@ -4,10 +4,14 @@ on:
   # 1. Permite ejecutarlo manualmente desde la pestaña "Actions"
   workflow_dispatch:
 
-  # 2. Lo programa para ejecutarse todos los días
+  # 2. Lo programa para ejecutarse todos los días (múltiples intentos por si el BCV no actualiza a tiempo)
   schedule:
-    # 5:00 PM (17:00) VET = 21:00 UTC
+    # 5:00 PM (17:00) VET = 21:00 UTC - Primer intento
     - cron: '0 21 * * *'
+    # 6:00 PM (18:00) VET = 22:00 UTC - Segundo intento
+    - cron: '0 22 * * *'
+    # 7:00 PM (19:00) VET = 23:00 UTC - Tercer intento
+    - cron: '0 23 * * *'
 
 permissions:
   contents: write
